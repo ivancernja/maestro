@@ -6,7 +6,9 @@ Run parallel coding agents in isolated git worktrees, from one terminal app.
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 
-![maestro](docs/hero.png)
+![maestro](docs/demo.gif)
+
+<sub>[Higher quality version](docs/demo.mp4)</sub>
 
 maestro lets you run several coding agents at the same time without them getting
 in each other's way. It gives each one its own git worktree and branch, keeps
@@ -104,6 +106,8 @@ spinner is work, a still screen is not.
 | `◆` | went quiet while you were looking elsewhere |
 | `○` | quiet, and you have seen it |
 | `✗` | the agent exited, `R` restarts it |
+
+![status marks](docs/hero.png)
 
 `◆` is the only state that needs you, so it is the only one that sends a desktop
 notification. Selecting the workspace clears the mark. If the agent was already
