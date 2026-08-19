@@ -48,8 +48,8 @@ everywhere else.
 
 ## Keys
 
-Run `maestro`. Normal mode drives the app, and the main pane always shows
-whatever is selected, live.
+Run `maestro`. In normal mode the keys below drive the app, and the main pane
+shows the agent you have selected.
 
 | Key | Action |
 | --- | --- |
@@ -67,8 +67,7 @@ whatever is selected, live.
 | `esc` | dismiss an error |
 | `q` | quit, agents keep running |
 
-Three keys stay yours while typing to an agent, so switching and creating never
-needs a trip back through normal mode.
+While you are typing to an agent, three keys still belong to maestro.
 
 | Key | Action |
 | --- | --- |
@@ -112,9 +111,9 @@ both leave a still screen. That would need per-agent transcript reading.
 
 ## Review and land
 
-`g` opens lazygit over the worktree, which covers the diff, staging, committing
-and pushing. `L` then merges the branch into the branch it was created from and
-retires the workspace.
+`g` opens lazygit over the worktree, for reading the diff and committing. `L`
+merges the branch into the branch it was created from, then removes the
+workspace.
 
 Because the merge happens in the repository you work in, maestro checks the
 preconditions first and says which one failed. The worktree has to be clean, the
@@ -127,11 +126,12 @@ and clean. If any check fails it does nothing.
 
 ![listening ports](docs/ports.png)
 
-Dev servers lead the list and are marked, matched on the command line rather than
-the process name, so `next-server` reads as `next` and `encore run` as `encore`
-instead of all of them saying `node`. Each row carries the git root it was started
-in and how long it has been up, and the selected row's pid and command line sit
-underneath.
+Dev servers are listed first and marked. maestro reads the command line rather
+than the process name, so a Next server shows as `next` and `encore run` as
+`encore` rather than both showing as `node`.
+
+Each row shows the git root the process was started in and how long it has been
+running. The pid and full command line of the selected row appear under the list.
 
 `x` stops one. It asks first and names the port, then sends SIGTERM and escalates
 to SIGKILL if that is ignored. Only your own sockets appear, because `ss`
@@ -202,10 +202,9 @@ cargo test        # prompt composition and shell quoting
 ./test/run        # 72 tests driving the real binary inside tmux
 ```
 
-`test/run` launches maestro in tmux and asserts on what the panes actually
-render, including pty sizing, workspace switching, key forwarding, mouse clicks
-and the ports panel. `MAESTRO_AGENT_CMD` substitutes a stand-in process so the
-suite never spends tokens on a real agent.
+`test/run` starts maestro inside tmux and checks what the panes actually render.
+`MAESTRO_AGENT_CMD` replaces the agent with a stand-in process, so running the
+suite does not use a real agent.
 
 ## License
 
