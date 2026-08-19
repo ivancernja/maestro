@@ -8,14 +8,14 @@ Run parallel coding agents in isolated git worktrees, from one terminal app.
 
 ![maestro](docs/hero.png)
 
-A workspace is a git worktree on its own branch, with a coding agent running
-inside it. maestro lists the workspaces in a sidebar and shows the selected
-agent's terminal next to it. The terminal is a real one, so you can type to the
-agent directly.
+maestro lets you run several coding agents at the same time without them getting
+in each other's way. It gives each one its own git worktree and branch, keeps
+them all in a sidebar, and shows the selected agent's terminal beside it. The
+terminal is a real one, so you type to the agent directly.
 
-Each agent has a separate checkout, so they do not touch each other's files.
-The agents run in detached tmux sessions, which means they keep running when you
-quit maestro and are still there when you open it again.
+You can leave an agent working and come back to it. The agents run in detached
+tmux sessions, so they keep going after you quit maestro and are still there when
+you open it again.
 
 ## Install
 
@@ -41,6 +41,10 @@ ln -s "$PWD/target/release/maestro" ~/.local/bin/maestro
 
 Repositories are found under `~/Work`, `~/code`, `~/src`, `~/dev`, `~/projects`
 and similar directories without configuration.
+
+maestro runs on any Linux system that has tmux and git. It picks up a few extras
+on [Omarchy](https://omarchy.org), described below, and works without them
+everywhere else.
 
 ## Keys
 
@@ -150,12 +154,30 @@ withholds the pid for everyone else's.
   survive quitting, and why keystrokes reach them unmodified.
 - Panes are addressed by absolute tmux id, because a `base-index` of 1 makes
   numeric targets like `:0.0` fail to resolve.
-- Worktrees follow the `../<repo>--<branch>` convention, so they are
-  interchangeable with hand-made ones.
-- On [Omarchy](https://omarchy.org) the palette is resolved with
-  `omarchy-theme-color`, the same resolver the config templates and terminal use,
-  and `omarchy theme set` is picked up within a second. Everywhere else the colors
-  are ANSI names, which inherit whatever the terminal defines.
+- Worktrees follow the `../<repo>--<branch>` convention, the same layout
+  Omarchy's `ga` shell helper uses, so worktrees made either way are
+  interchangeable.
+
+## Omarchy
+
+maestro does not require Omarchy, but it uses it when it is there.
+
+Colors come from the theme you have active. maestro asks
+`omarchy-theme-color --all` for the palette, which is the same resolver the
+config templates, tmux and the terminal escape sequences use, so it ends up with
+the theme's real accent, selection and status colors rather than an approximation
+of them. It watches the theme file, so `omarchy theme set` shows up in a running
+maestro within a second and there is nothing to restart.
+
+Two smaller things: notifications go through `omarchy-notification-send`, so they
+get the same styling as the rest of the desktop, and the agent picker opens on
+whatever `omarchy default agent` is set to. Worktrees also use the same
+`../<repo>--<branch>` layout as Omarchy's `ga` shell helper, so worktrees made
+either way are interchangeable.
+
+Off Omarchy, colors are ANSI names, which means they follow whatever palette your
+terminal already uses. Notifications fall back to `notify-send`, and the agent
+picker starts on the first agent it finds installed.
 
 ## Uninstall
 
