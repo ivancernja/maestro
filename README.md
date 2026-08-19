@@ -8,13 +8,14 @@ Run parallel coding agents in isolated git worktrees, from one terminal app.
 
 ![maestro](docs/hero.png)
 
-Every workspace is a git worktree with its own coding agent. The sidebar lists
-them with live status, and the selected agent fills the rest of the window as a
-real terminal you can type into. Agents keep running after you quit.
+A workspace is a git worktree on its own branch, with a coding agent running
+inside it. maestro lists the workspaces in a sidebar and shows the selected
+agent's terminal next to it. The terminal is a real one, so you can type to the
+agent directly.
 
-Two agents in one checkout fight over the same files. Two agents in two terminal
-tabs means losing track of which one is waiting for you. maestro gives each agent
-its own branch and worktree, and puts all of them on one screen.
+Each agent has a separate checkout, so they do not touch each other's files.
+The agents run in detached tmux sessions, which means they keep running when you
+quit maestro and are still there when you open it again.
 
 ## Install
 
@@ -77,14 +78,14 @@ needs a trip back through normal mode.
 
 ![new workspace](docs/new.png)
 
-The branch arrives pre-filled with a composer who is not already taken in that
-repository, so naming never holds you up. `⏎` accepts it, `tab` suggests another,
-and typing replaces it. Worktrees land beside the repository as
+The branch field is pre-filled with a composer's name that is not already used
+in that repository. `⏎` accepts it, `tab` picks a different one, and typing
+replaces it. The worktree is created next to the repository as
 `../<repo>--<branch>`.
 
-The task is optional and it is the useful part. Give the agent one and it starts
-working before you have switched away, using whichever prompt flag that agent
-expects. Leave it empty to open the agent idle.
+The task is optional. If you give one, maestro passes it to the agent on startup
+with whatever prompt flag that agent takes, so it begins working right away. If
+you leave it empty, the agent opens at its prompt.
 
 ## Status
 
@@ -98,12 +99,12 @@ spinner is work, a still screen is not.
 | `○` | quiet, and you have seen it |
 | `✗` | the agent exited, `R` restarts it |
 
-Only `◆` is asking for anything, so it is also the only one that sends a desktop
-notification. Selecting the workspace clears it. An agent that goes quiet while
-you are watching it is not news and is never marked.
+`◆` is the only state that needs you, so it is the only one that sends a desktop
+notification. Selecting the workspace clears the mark. If the agent was already
+selected when it went quiet, it is not marked, because you were looking at it.
 
-This cannot tell "waiting for your approval" from "finished", because both are
-still screens. Telling those apart needs per-agent transcript reading.
+Neither state distinguishes "waiting for your approval" from "finished", since
+both leave a still screen. That would need per-agent transcript reading.
 
 ## Review and land
 
@@ -111,10 +112,10 @@ still screens. Telling those apart needs per-agent transcript reading.
 and pushing. `L` then merges the branch into the branch it was created from and
 retires the workspace.
 
-Landing touches the repository you work in, so every precondition is checked
-first and reported by name. The worktree must be clean, the branch must be ahead
-of its base, and the main checkout must be on that base and clean. If any of that
-fails, nothing happens.
+Because the merge happens in the repository you work in, maestro checks the
+preconditions first and says which one failed. The worktree has to be clean, the
+branch has to be ahead of its base, and the main checkout has to be on that base
+and clean. If any check fails it does nothing.
 
 ## Listening ports
 
