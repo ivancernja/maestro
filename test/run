@@ -1,0 +1,424 @@
+#!/bin/bash
+
+# Drives the real binary inside tmux and asserts on what it actually renders,
+# so a layout, pty, or key-handling regression fails here rather than in use.
+
+set -uo pipefail
+
+ROOT=$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")
+BIN="$ROOT/target/debug/maestro"
+
+TMP=$(mktemp -d)
+STATE="$TMP/state"
+REPOS="$TMP/repos"
+UI="maestro-test-$$"
+PREFIX="mtt$$-"
+# Unique per agent so a switch is observable, and echoes input so key
+# forwarding is observable.
+STUB='bash -c "echo READY-\$\$; cat"'
+
+APP_W=170
+APP_H=40
+SIDEBAR=32
+
+pass=0
+fail=0
+ok() { echo "ok - $1"; (( pass++ )); return 0; }
+no() {
+  echo "not ok - $1"
+  [[ -n ${2:-} ]] && echo "  $2"
+  (( fail++ ))
+  return 0
+}
+is() { if [[ $2 == "$3" ]]; then ok "$1"; else no "$1" "expected '$3', got '$2'"; fi; }
+
+screen() { tmux capture-pane -p -t "$UI"; }
+styled() { tmux capture-pane -e -p -t "$UI"; }
+
+# Row of a workspace in the sidebar, as a 1-based mouse row.
+row_of() { screen | grep -nE "[○●✗] $1" | head -1 | cut -d: -f1; }
+
+has() {
+  if screen | grep -qF -- "$2"; then ok "$1"; else no "$1" "'$2' not on screen"; fi
+}
+
+wait_for() {
+  local i
+  for (( i = 0; i < 60; i++ )); do
+    screen | grep -qF -- "$1" && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+waits() {
+  if wait_for "$2"; then ok "$1"; else no "$1" "'$2' never appeared"; fi
+}
+
+key() { tmux send-keys -t "$UI" "$@"; sleep 0.45; }
+
+# The app captures the mouse, so events are injected as SGR reports. A capture
+# line number is the 1-based mouse row.
+click() {
+  tmux send-keys -t "$UI" -l $'\e[<0;5;'"$1"'M'
+  sleep 0.2
+  tmux send-keys -t "$UI" -l $'\e[<0;5;'"$1"'m'
+  sleep 1.3
+}
+scroll_down() { tmux send-keys -t "$UI" -l $'\e[<65;5;4M'; sleep 1.3; }
+
+branch_field() { screen | grep -o '❯ [a-z0-9-]*' | head -1 | sed 's/❯ //'; }
+
+cleanup() {
+  local s
+  while read -r s; do
+    [[ $s == "$UI" || $s == "$PREFIX"* ]] && tmux kill-session -t "$s" 2>/dev/null
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  [[ -n ${listener:-} ]] && kill -9 "$listener" 2>/dev/null
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+
+# --------------------------------------------------------------------- fixture
+mkdir -p "$REPOS"
+for r in demo other; do
+  git init -q -b main "$REPOS/$r"
+  git -C "$REPOS/$r" config user.email t@example.com
+  git -C "$REPOS/$r" config user.name Test
+  echo base >"$REPOS/$r/README.md"
+  git -C "$REPOS/$r" add -A
+  git -C "$REPOS/$r" commit -qm init
+done
+
+[[ -x $BIN ]] || { echo "not ok - binary built"; echo "  run: cargo build"; exit 1; }
+ok "binary built"
+
+THEME_DARK=/usr/share/omarchy/themes/catppuccin/colors.toml
+THEME_LIGHT=/usr/share/omarchy/themes/catppuccin-latte/colors.toml
+THEME_ENV=()
+if [[ -f $THEME_DARK && -f $THEME_LIGHT ]]; then
+  cp "$THEME_DARK" "$TMP/theme.toml"
+  THEME_ENV=(-e MAESTRO_THEME_FILE="$TMP/theme.toml")
+fi
+
+tmux new-session -d -s "$UI" -x "$APP_W" -y "$APP_H" \
+  -e MAESTRO_STATE="$STATE" -e MAESTRO_REPO_ROOT="$REPOS" \
+  -e MAESTRO_SESSION_PREFIX="$PREFIX" -e MAESTRO_AGENT_CMD="$STUB" \
+  "${THEME_ENV[@]}" \
+  bash -c "'$BIN' 2>'$TMP/err'; echo EXITED-\$?"
+tmux set-option -t "$UI" remain-on-exit on
+sleep 1.5
+
+# ----------------------------------------------------------------- empty state
+waits "empty state invites a first workspace" "no workspaces yet"
+has "header renders the wordmark" "MAESTRO"
+has "sidebar is titled" "workspaces"
+has "footer lists the normal-mode keys" "n new"
+
+# ---------------------------------------------------------------------- theme
+if (( ${#THEME_ENV[@]} )); then
+  # catppuccin accent #89b4fa, then catppuccin-latte accent #1e66f5.
+  if styled | grep -q '38;2;137;180;250'; then
+    ok "palette is resolved from the omarchy theme"
+  else
+    no "palette is resolved from the omarchy theme"
+  fi
+  cp "$THEME_LIGHT" "$TMP/theme.toml"
+  sleep 3
+  if styled | grep -q '38;2;30;102;245'; then
+    ok "a theme change is picked up without a restart"
+  else
+    no "a theme change is picked up without a restart"
+  fi
+  cp "$THEME_DARK" "$TMP/theme.toml"
+  sleep 2.5
+else
+  echo "# theme tests skipped: omarchy themes not installed"
+fi
+
+# ---------------------------------------------------------------- create a ws
+key n
+waits "n opens the repository picker" "repository"
+has "picker lists a repo by basename" "demo"
+has "picker also lists the other repo" "other"
+# The parent is dimmed to the right of the name and must not run into it.
+if screen | grep -qE '▌ demo {2,}'; then
+  ok "picker separates name from parent path"
+else
+  no "picker separates name from parent path" "$(screen | grep -F '▌ demo')"
+fi
+
+key Enter
+waits "picker advances to the branch prompt" "tab for another"
+suggested=$(branch_field)
+if [[ -n $suggested ]]; then
+  ok "branch step arrives pre-filled with a suggestion"
+else
+  no "branch step arrives pre-filled with a suggestion"
+fi
+key Tab
+rerolled=$(branch_field)
+if [[ -n $rerolled && $rerolled != "$suggested" ]]; then
+  ok "tab suggests a different name"
+else
+  no "tab suggests a different name" "suggested=$suggested rerolled=$rerolled"
+fi
+key alpha
+is "typing replaces the suggestion rather than appending" "$(branch_field)" "alpha"
+has "branch prompt echoes what is typed" "alpha"
+key Enter
+waits "branch advances to the agent picker" " agent "
+has "agent picker lists an installed agent" "claude"
+key Enter
+waits "agent picker advances to the task prompt" "empty to open the agent idle"
+key Enter
+
+waits "the new workspace appears in the sidebar" "alpha"
+[[ -d $REPOS/demo--alpha ]] && ok "worktree created at the ga convention path" ||
+  no "worktree created at the ga convention path"
+tmux has-session -t "${PREFIX}demo--alpha" 2>/dev/null &&
+  ok "agent tmux session created" || no "agent tmux session created"
+[[ -f $STATE/ws/demo--alpha.json ]] && ok "workspace registered" || no "workspace registered"
+is "branch checked out in the worktree" \
+  "$(git -C "$REPOS/demo--alpha" rev-parse --abbrev-ref HEAD)" "alpha"
+
+waits "live agent output reaches the main pane" "READY-"
+has "main pane is titled with the workspace" "alpha · demo · claude"
+
+# ------------------------------------------------------------------- pty size
+agent_size=$(tmux display-message -p -t "${PREFIX}demo--alpha" '#{window_width}x#{window_height}')
+is "agent pty matches the main pane inner area" \
+  "$agent_size" "$(( APP_W - SIDEBAR - 2 ))x$(( APP_H - 4 ))"
+
+# ---------------------------------------------------------------- second ws
+alpha_pid=$(screen | grep -o 'READY-[0-9]*' | head -1)
+key n; key Enter; key beta; key Enter; key Enter; key Enter
+waits "a second workspace is created" "beta"
+sleep 1.5
+beta_pid=$(screen | grep -o 'READY-[0-9]*' | head -1)
+[[ -n $beta_pid && $beta_pid != "$alpha_pid" ]] &&
+  ok "creating a workspace focuses it" || no "creating a workspace focuses it" \
+  "alpha=$alpha_pid beta=$beta_pid"
+
+# ------------------------------------------------------------------ switching
+key k
+sleep 1.5
+shown=$(screen | grep -o 'READY-[0-9]*' | head -1)
+is "k switches the main pane to the other agent" "$shown" "$alpha_pid"
+has "title follows the selection" "alpha · demo · claude"
+key j
+sleep 1.5
+is "j switches back" "$(screen | grep -o 'READY-[0-9]*' | head -1)" "$beta_pid"
+
+# ---------------------------------------------------------------------- mouse
+click "$(row_of alpha)"
+is "clicking a sidebar row selects it" \
+  "$(screen | grep -o 'READY-[0-9]*' | head -1)" "$alpha_pid"
+has "clicking a row updates the title" "alpha · demo · claude"
+scroll_down
+is "scrolling the sidebar moves the selection" \
+  "$(screen | grep -o 'READY-[0-9]*' | head -1)" "$beta_pid"
+
+# --------------------------------------------------------------- insert mode
+key Enter
+waits "Enter enters insert mode" "INSERT"
+tmux send-keys -t "$UI" "hello-from-maestro"
+sleep 1
+has "keys typed in insert mode reach the agent" "hello-from-maestro"
+
+# A few keys stay maestro's while typing, so creating and switching never needs
+# a detour through normal mode.
+before=$(screen | grep -o 'READY-[0-9]*' | head -1)
+key M-k
+sleep 1.5
+after=$(screen | grep -o 'READY-[0-9]*' | head -1)
+if [[ -n $after && $after != "$before" ]]; then
+  ok "alt+k switches agent from insert mode"
+else
+  no "alt+k switches agent from insert mode" "before=$before after=$after"
+fi
+has "insert mode survives an alt switch" "INSERT"
+key M-j
+sleep 1.5
+is "alt+j switches back" "$(screen | grep -o 'READY-[0-9]*' | head -1)" "$before"
+
+key M-n
+waits "alt+n opens the picker from insert mode" "repository"
+key Escape
+sleep 0.6
+has "abandoning the form returns to insert mode" "INSERT"
+
+key C-q
+if screen | grep -qF "INSERT"; then
+  no "ctrl+q leaves insert mode"
+else
+  ok "ctrl+q leaves insert mode"
+fi
+
+# ---------------------------------------------------------------------- tools
+key g
+waits "g opens lazygit over the worktree" "lazygit · beta"
+key C-q
+waits "ctrl+q closes the tool and returns to the agent" "beta · demo · claude"
+
+key s
+sleep 1
+tmux send-keys -t "$UI" "pwd"
+key Enter
+sleep 1.2
+has "s opens a shell in the worktree" "demo--beta"
+key C-q
+sleep 1
+
+# ---------------------------------------------------------------------- ports
+PORT=45781
+if ! command -v ss >/dev/null; then
+  echo "# ports tests skipped: ss is not available"
+elif ss -tln | grep -q ":$PORT "; then
+  echo "# ports tests skipped: $PORT is already in use"
+else
+  python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 &
+  listener=$!
+  sleep 1.5
+
+  key p
+  waits "p opens the listening ports panel" "listening ports"
+  waits "the panel lists a listener of ours" "$PORT"
+
+  # Walk to our row: the detail line names the selected process, and nothing
+  # is signalled without landing on it first.
+  landed=0
+  for _ in $(seq 1 30); do
+    if screen | grep -q "http.server $PORT"; then landed=1; break; fi
+    tmux send-keys -t "$UI" j
+    sleep 0.3
+  done
+  if (( landed )); then
+    ok "j reaches our listener and shows its command"
+  else
+    no "j reaches our listener and shows its command"
+  fi
+
+  key x
+  if screen | grep -q "on $PORT?"; then
+    ok "stopping asks first, naming the port"
+  else
+    no "stopping asks first, naming the port" "$(screen | tail -1)"
+  fi
+  key y
+  sleep 4.5
+  if ss -tln | grep -q ":$PORT "; then
+    no "confirming stops the listener"
+  else
+    ok "confirming stops the listener"
+  fi
+  kill -9 "$listener" 2>/dev/null
+  listener=""
+
+  key Escape
+  sleep 0.5
+  has "esc closes the panel" "p ports"
+fi
+
+# --------------------------------------------------------------- dead session
+tmux kill-session -t "${PREFIX}demo--beta"
+waits "a killed agent is reported as gone" "session is gone"
+has "sidebar shows the gone glyph" "✗"
+has "the gone pane offers a restart" "R restarts the agent here"
+
+# ------------------------------------------------------------------- restart
+key R
+waits "R relaunches the agent in the same worktree" "READY-"
+if tmux has-session -t "${PREFIX}demo--beta" 2>/dev/null; then
+  ok "restart recreates the agent session"
+else
+  no "restart recreates the agent session"
+fi
+[[ -d $REPOS/demo--beta ]] && ok "restart keeps the worktree" ||
+  no "restart keeps the worktree"
+
+# ------------------------------------------------------------ waiting marker
+# Going quiet is only news when you were looking somewhere else.
+key k
+sleep 1.5
+tmux send-keys -t "${PREFIX}demo--beta" "late work"
+sleep 6
+if screen | grep -q '◆'; then
+  ok "an agent that goes quiet unwatched is marked"
+else
+  no "an agent that goes quiet unwatched is marked"
+fi
+has "the header counts what is waiting" "waiting"
+key j
+sleep 1.5
+if screen | grep -q '◆'; then
+  no "looking at it clears the mark"
+else
+  ok "looking at it clears the mark"
+fi
+
+tmux kill-session -t "${PREFIX}demo--beta" 2>/dev/null
+sleep 2
+
+
+# -------------------------------------------------------------------- delete
+key d
+waits "d asks before removing" "remove workspace"
+key y
+sleep 1.5
+[[ ! -d $REPOS/demo--beta ]] && ok "delete removes the worktree" || no "delete removes the worktree"
+[[ ! -f $STATE/ws/demo--beta.json ]] && ok "delete unregisters the workspace" ||
+  no "delete unregisters the workspace"
+git -C "$REPOS/demo" show-ref --verify --quiet refs/heads/beta &&
+  no "delete removes the branch" || ok "delete removes the branch"
+tmux has-session -t "${PREFIX}demo--beta" 2>/dev/null &&
+  no "delete kills the agent session" || ok "delete kills the agent session"
+
+# ---------------------------------------------------------------------- quit
+# ---------------------------------------------------------------------- land
+# alpha is the only workspace left, so it is selected.
+key L
+waits "land says what it will do" "merge alpha into main"
+key y
+sleep 2
+has "land refuses a branch with no commits" "no commits beyond main"
+
+echo work >"$REPOS/demo--alpha/work.md"
+git -C "$REPOS/demo--alpha" add -A
+git -C "$REPOS/demo--alpha" -c user.email=t@example.com -c user.name=Test \
+  commit -qm "the work"
+sleep 2
+key L
+key y
+sleep 3
+if git -C "$REPOS/demo" log --oneline | grep -q "the work"; then
+  ok "land merges the branch into its base"
+else
+  no "land merges the branch into its base"
+fi
+[[ ! -d $REPOS/demo--alpha ]] && ok "land removes the worktree" ||
+  no "land removes the worktree"
+if git -C "$REPOS/demo" show-ref --verify --quiet refs/heads/alpha; then
+  no "land deletes the merged branch"
+else
+  ok "land deletes the merged branch"
+fi
+
+key q
+sleep 1
+if ! tmux has-session -t "$UI" 2>/dev/null ||
+  tmux list-panes -t "$UI" -F '#{pane_dead}' 2>/dev/null | grep -qx 1; then
+  ok "q quits the app"
+else
+  no "q quits the app"
+fi
+
+if [[ -s $TMP/err ]]; then
+  echo
+  echo "--- app stderr ---"
+  cat "$TMP/err"
+fi
+
+echo
+echo "$pass passed, $fail failed"
+(( fail == 0 ))
