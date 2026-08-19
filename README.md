@@ -40,7 +40,10 @@ ln -s "$PWD/target/release/maestro" ~/.local/bin/maestro
 | `lazygit` | reviewing changes with `g` |
 
 Repositories are found under `~/Work`, `~/code`, `~/src`, `~/dev`, `~/projects`
-and similar directories without configuration.
+and similar directories without configuration, three levels deep. If none of
+those exist, maestro looks two levels deep in your home directory instead. If it
+finds nothing either way, the picker says so and points at `MAESTRO_REPO_ROOT`,
+which replaces the search and takes several paths separated by colons.
 
 maestro runs on any Linux system that has tmux and git. It picks up a few extras
 on [Omarchy](https://omarchy.org), described below, and works without them
