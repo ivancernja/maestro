@@ -640,7 +640,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tui-term",
- "vt100",
+ "vt100 0.17.0",
 ]
 
 [[package]]
@@ -1527,7 +1527,7 @@ checksum = "a338ded85dbe7f9ea2298321d126244f54e531e2b2006b97abdab8e47d6f3c88"
 dependencies = [
  "ratatui-core",
  "ratatui-widgets",
- "vt100",
+ "vt100 0.16.2",
 ]
 
 [[package]]
@@ -1600,6 +1600,17 @@ name = "vt100"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "054ff75fb8fa83e609e685106df4faeffdf3a735d3c74ebce97ec557d5d36fd9"
+dependencies = [
+ "itoa",
+ "unicode-width",
+ "vte",
+]
+
+[[package]]
+name = "vt100"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e8e54ec9993c500979d6771157fc4a8b47e460fddc430dd5c66a74fc6865b07"
 dependencies = [
  "itoa",
  "unicode-width",
